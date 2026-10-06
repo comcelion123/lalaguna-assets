@@ -1,7 +1,7 @@
-lalaguna-assets-drop - every file lalaguna.studio reads from this repo
-=====================================================================
+lalaguna-assets - every file lalaguna.studio reads from this repo
+=================================================================
 Served by jsDelivr at
-  https://cdn.jsdelivr.net/gh/comcelion123/lalaguna-assets@main/lalaguna-assets-drop/<path>
+  https://cdn.jsdelivr.net/gh/comcelion123/lalaguna-assets@main/<path>
 A NEW filename is live the moment it is pushed. A CHANGED file under the
 same name is cached for about 12 hours - so when something is re-rendered,
 it gets a new name (-v2, -v3) and the code is pointed at it.
@@ -37,4 +37,6 @@ earth/                               the Studio globe
   earth-night-4096.jpg               Black Marble (NASA, public domain)
   earth-water-2048.jpg               the ocean mask
 
-Nothing outside this folder is needed any more.
+Not used by lalaguna.studio any more (safe to delete if nothing else reads
+them): lalaguna-studio__CEDAIN-intro-module.js (the first gate),
+lukang-akon-bg-v2.mp4, lukang-akon-bg-v2-mobile.mp4.
