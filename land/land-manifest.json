@@ -1,0 +1,39 @@
+{
+ "frame": "metres; x east, z south, y up; origin (4.64, -73.98)",
+ "encode": {
+  "lo": 1215.0,
+  "hi": 4193.0,
+  "note": "16-bit as R*256+G over [lo,hi]; row 0 is north (z0)"
+ },
+ "far": {
+  "file": "terrain-far-1024.png",
+  "size": 1024,
+  "x0": -24000.0,
+  "z0": -24000.0,
+  "w": 48000.0,
+  "h": 48000.0
+ },
+ "near": {
+  "file": "terrain-near-1024.png",
+  "size": 1024,
+  "x0": -16000.0,
+  "z0": -4000.0,
+  "w": 12000.0,
+  "h": 12000.0
+ },
+ "ring": {
+  "file": "terrain-ring-512.png",
+  "size": 512,
+  "x0": -57744.58098839701,
+  "z0": -34511.892449577164,
+  "w": 100000.0,
+  "h": 100000.0
+ },
+ "lights": {
+  "file": "city-lights-v1.bin",
+  "lamps": 89468,
+  "segments": 46458,
+  "glow": 188407
+ },
+ "plain": 2563.2054885020807
+}
