@@ -1,0 +1,246 @@
+/* ---- the droplet ----
+  The threshold of the film: the whole screen is a pool. The first frame
+  of the flight - the mountains at golden hour - lies under the water,
+  bent by a slow swell, with light netting across it the way sun moves on
+  the floor of a pool. In the middle a single point of light breathes and
+  the surface rings very softly around it. No words: it asks to be
+  touched. A touch sends one ring across the water and the pool clears
+  away as the film starts from that very frame.
+  Kept light on purpose: the water is drawn at a fraction of the screen's
+  pixels (at most about half a million, fewer if the frames run long) and
+  stretched - water has no edges to lose - while the point of light is
+  plain CSS, sharp at any size. If the picture cannot be read (no CORS)
+  the water is drawn as light and shade only, over the scene.
+  makeDroplet(host, {image}) -> { el, splash(), stop() }. WebGL; the point
+  of light alone where WebGL is missing. */
+  var DROP_CSS =
+    ".lala-drop canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block}" +
+    ".lala-dot{position:absolute;left:50%;top:50%;width:0;height:0;z-index:2;pointer-events:none;" +
+    "transition:transform .55s cubic-bezier(.2,.7,.2,1),opacity .6s ease}" +
+    ".lala-dot b{position:absolute;left:-6px;top:-6px;width:12px;height:12px;border-radius:50%;background:#FFF8EC;" +
+    "box-shadow:0 0 6px 2px rgba(255,244,222,.95),0 0 24px 9px rgba(232,211,166,.5),0 0 70px 26px rgba(158,180,211,.24);" +
+    "animation:lalaDotBreath 2.6s ease-in-out infinite}" +
+    ".lala-dot i{position:absolute;left:-22px;top:-22px;width:44px;height:44px;border-radius:50%;" +
+    "border:1px solid rgba(232,211,166,.6);box-shadow:0 0 10px rgba(232,211,166,.25);opacity:0;" +
+    "animation:lalaDotRing 2.6s cubic-bezier(.2,.6,.3,1) infinite}" +
+    ".lala-dot i+i{animation-delay:1.3s}" +
+    "@keyframes lalaDotBreath{0%,100%{transform:scale(.84);opacity:.8}50%{transform:scale(1.1);opacity:1}}" +
+    "@keyframes lalaDotRing{0%{transform:scale(.25);opacity:0}18%{opacity:.75}100%{transform:scale(2.7);opacity:0}}" +
+    ".lala-filmgate.is-near .lala-dot{transform:scale(1.4)}" +
+    ".lala-drop.is-splash .lala-dot{transform:scale(3.2);opacity:0}" +
+    ".lala-drop.is-css{background:radial-gradient(ellipse at 50% 50%,rgba(158,180,211,.10),rgba(8,9,12,.0) 60%)}" +
+    ".lala-drop.is-css.is-splash{opacity:0}" +
+    ".lala-filmgate.is-begin{cursor:pointer}" +
+    ".lala-filmgate .lala-film-skip{z-index:6}" +
+    ".lala-filmgate.is-begin .lala-film-skip{opacity:.62}" +
+    ".lala-filmgate.is-begin .lala-film-skip:hover,.lala-filmgate.is-begin .lala-film-skip:focus-visible{opacity:1}" +
+    "@media (prefers-reduced-motion:reduce){.lala-dot b{animation:none}.lala-dot i{display:none}}";
+
+  function makeDroplet(host, opts) {
+    opts = opts || {};
+    if (!document.getElementById('lala-drop-css')) {
+      var st = document.createElement('style');
+      st.id = 'lala-drop-css';
+      st.textContent = DROP_CSS;
+      document.head.appendChild(st);
+    }
+    var wrap = document.createElement('div');
+    wrap.className = 'lala-drop';
+    wrap.setAttribute('aria-hidden', 'true');
+    var cv = document.createElement('canvas');
+    wrap.appendChild(cv);
+    var dot = document.createElement('span');
+    dot.className = 'lala-dot';
+    dot.appendChild(document.createElement('i'));
+    dot.appendChild(document.createElement('i'));
+    dot.appendChild(document.createElement('b'));
+    wrap.appendChild(dot);
+    host.appendChild(wrap);
+    var api = { el: wrap, splash: function () {}, stop: function () {} };
+
+    /* is the pointer over the point of light - the whole screen takes the
+       touch, the light only answers when it is close */
+    function onMove(e) {
+      var b = wrap.getBoundingClientRect();
+      var dx = e.clientX - (b.left + b.width / 2), dy = e.clientY - (b.top + b.height / 2);
+      var near = Math.sqrt(dx * dx + dy * dy) < Math.max(70, Math.min(b.width, b.height) * 0.14);
+      hoverTo = near ? 1 : 0;
+      host.classList.toggle('is-near', near);
+    }
+    var hoverTo = 0;
+    host.addEventListener('pointermove', onMove);
+    function unhook() { host.removeEventListener('pointermove', onMove); host.classList.remove('is-near'); }
+
+    function cssStandIn() {
+      cv.style.display = 'none';
+      wrap.classList.add('is-css');
+      api.splash = function () { wrap.classList.add('is-splash'); setTimeout(api.stop, 900); };
+      api.stop = function () { unhook(); if (wrap.parentNode) wrap.parentNode.removeChild(wrap); };
+      return api;
+    }
+    var gl = null;
+    try {
+      gl = cv.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: false, powerPreference: 'low-power' }) || null;
+    } catch (e) {}
+    if (!gl) return cssStandIn();
+
+    var VS = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+    var FS = [
+      '#ifdef GL_FRAGMENT_PRECISION_HIGH',
+      'precision highp float;',
+      '#else',
+      'precision mediump float;',
+      '#endif',
+      'uniform vec2 uRes, uCover; uniform float uT, uS, uH, uIn, uHasTex; uniform sampler2D uTex;',
+      /* one train of swell: height, slope and curvature, added up */
+      'vec4 W;',
+      'void sw(vec2 p, vec2 d, float k, float s, float a){',
+      '  float ph = dot(p, d) * k + uT * s; float sn = sin(ph);',
+      '  W += vec4(a * sn, a * k * cos(ph) * d, -a * k * k * sn);',
+      '}',
+      'void main(){',
+      '  vec2 p = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;',
+      '  vec2 q = p + 0.035 * vec2(sin(p.y * 3.1 + uT * 0.37), sin(p.x * 2.6 - uT * 0.31));',
+      '  W = vec4(0.0);',
+      '  sw(q, vec2(0.94, 0.33), 6.0, 0.80, 0.0120);',
+      '  sw(q, vec2(-0.37, 0.93), 8.5, -0.95, 0.0090);',
+      '  sw(q, vec2(0.66, -0.75), 12.5, 1.15, 0.0060);',
+      '  sw(q, vec2(-0.98, -0.19), 17.0, -1.40, 0.0036);',
+      '  sw(q, vec2(0.28, 0.96), 23.0, 1.75, 0.0022);',
+      '  sw(q, vec2(-0.80, 0.60), 31.0, -2.10, 0.0012);',
+      /* the soft rings around the point of light, and the one a touch sends */
+      '  float r = max(length(p), 1e-3); vec2 rd = p / r;',
+      '  float ka = 36.0, ra = 0.0026 * (0.7 + 0.6 * uH) * exp(-r * 2.4) * smoothstep(0.0, 0.05, r);',
+      '  float pr = r * ka - uT * 2.3;',
+      '  W += vec4(ra * sin(pr), ra * ka * cos(pr) * rd, -ra * ka * ka * sin(pr));',
+      '  float rs = uS * 1.9, dr = r - rs, ga = 0.03 * (1.0 - uS) * exp(-dr * dr * 90.0);',
+      '  W.yz += ga * (-180.0 * dr) * rd;',
+      '  vec2 g = W.yz;',
+      /* light gathered under the crests: the net of a pool floor */
+      '  vec2 cq = q * 6.0 + 0.85 * vec2(sin(q.y * 6.3 + uT * 0.55), sin(q.x * 5.4 - uT * 0.47)) + g * 26.0;',
+      '  cq += 0.45 * vec2(sin(cq.y * 1.7 - uT * 0.8), sin(cq.x * 1.9 + uT * 0.7));',
+      '  float l1 = abs(sin(cq.x)), l2 = abs(sin(dot(cq, vec2(0.5, 0.866)))), l3 = abs(sin(dot(cq, vec2(-0.5, 0.866))));',
+      '  float c = pow(1.0 - min(l1, min(l2, l3)), 6.0);',
+      '  c *= 0.55 + 0.45 * smoothstep(-0.6, 1.2, -W.w);',
+      '  vec3 n = normalize(vec3(-g * 1.6, 1.0));',
+      '  vec3 L = normalize(vec3(-0.22, 0.34, 1.0));',
+      '  float sp = pow(max(dot(reflect(vec3(0.0, 0.0, -1.0), n), L), 0.0), 140.0);',
+      '  float halo = exp(-r * r * 26.0);',
+      '  float vg = 1.0 - 0.38 * smoothstep(0.35, 1.05, length(p * vec2(0.8, 1.0)));',
+      '  float a = uIn * (1.0 - smoothstep(0.0, 1.0, uS));',
+      '  if (uHasTex > 0.5) {',
+      '    vec2 uv = gl_FragCoord.xy / uRes + g * 0.30;',
+      '    uv = (uv - 0.5) * uCover + 0.5;',
+      '    vec3 col = texture2D(uTex, clamp(uv, 0.002, 0.998)).rgb;',
+      '    col *= mix(vec3(1.0), vec3(0.84, 0.96, 1.04), 0.45);',
+      '    col *= 0.90 + 0.30 * c;',
+      '    col += vec3(1.0, 0.95, 0.86) * (c * 0.08 + sp * 0.5) + vec3(1.0, 0.93, 0.80) * halo * 0.16;',
+      '    col *= vg;',
+      '    gl_FragColor = vec4(col * a, a);',
+      '  } else {',
+      '    vec3 add = vec3(0.86, 0.92, 1.0) * c * 0.20 + vec3(1.0, 0.95, 0.86) * (sp * 0.5 + halo * 0.14);',
+      '    float dark = 0.10 + 0.30 * (1.0 - vg) + max(-W.w, 0.0) * 0.0;',
+      '    gl_FragColor = vec4(add * a, dark * a);',
+      '  }',
+      '}'
+    ].join('\n');
+    function sh(type, src) {
+      var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+      return s;
+    }
+    var prog;
+    try {
+      prog = gl.createProgram();
+      gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+    } catch (err) {
+      if (window.console) console.log('[LALA] droplet: ' + err.message);
+      return cssStandIn();
+    }
+    gl.useProgram(prog);
+    var buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    var loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    var U = {}; ['uRes', 'uCover', 'uT', 'uS', 'uH', 'uIn', 'uHasTex', 'uTex'].forEach(function (k) { U[k] = gl.getUniformLocation(prog, k); });
+
+    /* the first frame, as a texture - shrunk first, the water is drawn small */
+    var hasTex = 0, texW = 16, texH = 9;
+    var tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.uniform1i(U.uTex, 0);
+    if (opts.image) {
+      var img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.decoding = 'async';
+      img.onload = function () {
+        if (done) return;
+        try {
+          var src = img, iw = img.naturalWidth, ih = img.naturalHeight, f = Math.min(1, 1280 / Math.max(iw, ih));
+          if (f < 1) {
+            var c2 = document.createElement('canvas');
+            c2.width = Math.round(iw * f); c2.height = Math.round(ih * f);
+            c2.getContext('2d').drawImage(img, 0, 0, c2.width, c2.height);
+            src = c2;
+          }
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+          texW = iw; texH = ih; hasTex = 1;
+        } catch (err) { if (window.console) console.log('[LALA] droplet: first frame not readable (' + err.message + ')'); }
+      };
+      img.src = opts.image;
+    }
+
+    /* the drawing size: a fraction of the screen, smaller again if frames run long */
+    var BUDGET = 500000, scale = 0.75, W = 0, H = 0;
+    function size() {
+      var cw = wrap.clientWidth || window.innerWidth, ch = wrap.clientHeight || window.innerHeight;
+      var k = Math.min(scale, Math.sqrt(BUDGET / Math.max(1, cw * ch)));
+      W = Math.max(2, Math.round(cw * k)); H = Math.max(2, Math.round(ch * k));
+      if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+      gl.viewport(0, 0, W, H);
+    }
+    size();
+    window.addEventListener('resize', size);
+
+    var reduce = false;
+    try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+    var SPEED = reduce ? 0.35 : 1, SETTLE = 900;
+    var t0 = performance.now(), last = t0, raf = 0, splashAt = 0, hover = 0, done = false, ema = 16, nF = 0;
+    function frame(now) {
+      if (done) return;
+      raf = requestAnimationFrame(frame);
+      var dt = now - last; last = now;
+      if (dt > 0 && dt < 250) {
+        ema += (dt - ema) * 0.08;
+        if (++nF > 45 && ema > 24 && scale > 0.3) { scale *= 0.75; BUDGET *= 0.6; size(); nF = 0; ema = 16; }
+      }
+      var t = ((now - t0) / 1000 * SPEED) % 900;
+      hover += (hoverTo - hover) * 0.06;
+      var s = splashAt ? Math.min(1, (now - splashAt) / SETTLE) : 0;
+      var ar = W / H, tr = texW / texH;
+      gl.uniform2f(U.uRes, W, H);
+      gl.uniform2f(U.uCover, ar > tr ? 1 : ar / tr, ar > tr ? tr / ar : 1);
+      gl.uniform1f(U.uT, t + 3.0); gl.uniform1f(U.uS, s); gl.uniform1f(U.uH, hover);
+      gl.uniform1f(U.uIn, Math.min(1, (now - t0) / 900)); gl.uniform1f(U.uHasTex, hasTex);
+      gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      if (s >= 1) api.stop();
+    }
+    raf = requestAnimationFrame(frame);
+    api.splash = function () { if (!splashAt) { splashAt = performance.now(); wrap.classList.add('is-splash'); } };
+    api.stop = function () {
+      if (done) return;
+      done = true; cancelAnimationFrame(raf);
+      unhook();
+      window.removeEventListener('resize', size);
+      if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      try { var lose = gl.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext(); } catch (e) {}
+    };
+    return api;
+  }
