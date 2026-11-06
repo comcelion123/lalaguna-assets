@@ -1,0 +1,7 @@
+facade-atlas-v1-diff.jpg / facade-atlas-v1-nrm.jpg
+Packed from Poly Haven textures (https://polyhaven.com), all CC0 1.0 (public domain):
+red_brick_03, brick_4, painted_plaster_wall, white_plaster_02, concrete_wall_003,
+cracked_concrete_wall, concrete_tile_facade, rectangular_facade_tiles,
+painted_metal_shutter, clay_roof_tiles, corrugated_iron.
+Layout: 4 x 4 cells of 512 px, each a 480 px tile inside a 16 px wrap-around border,
+in the order listed (row by row from the top left). Colour = diff, relief = OpenGL normal (nor_gl).
